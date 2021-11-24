@@ -1,0 +1,18 @@
+{
+    "compilerOptions": {
+        "target": "ES2020",
+        "module": "commonjs",
+        "outDir": "./src", // where the .js and .d.ts files are outputted
+        "declaration": true, // generated .d.ts files that describe the types of elements in the corresponding .ts files
+        "rootDir": "./ts_src",
+        "allowJs": false,
+        "esModuleInterop": true,
+    },
+    "include": [
+        "ts_src/**/*.ts"
+    ],
+    "exclude": [
+        "**/*.spec.ts",
+        "node_modules/**/*"
+    ]
+}

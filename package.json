@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "@types/node": "^16.11.10",
+    "bip32": "^3.0.1",
+    "bip39": "^3.0.4",
+    "bitcoinjs-lib": "^6.0.0",
+    "ecpair": "^1.0.1",
+    "tiny-secp256k1": "^2.1.2"
+  }
+}

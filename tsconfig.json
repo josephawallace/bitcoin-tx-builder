@@ -2,11 +2,15 @@
     "compilerOptions": {
         "target": "ES2020",
         "module": "commonjs",
-        "outDir": "./src", // where the .js and .d.ts files are outputted
-        "declaration": true, // generated .d.ts files that describe the types of elements in the corresponding .ts files
+        "outDir": "./src",
+        "declaration": true,
         "rootDir": "./ts_src",
         "allowJs": false,
         "esModuleInterop": true,
+    },
+    "watchOptions": {
+        "watchFile": "usefsevents",
+        "watchDirectory": "usefsevents",
     },
     "include": [
         "ts_src/**/*.ts"

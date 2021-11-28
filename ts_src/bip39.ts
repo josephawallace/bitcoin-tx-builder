@@ -1,10 +1,11 @@
-require('dotenv').config()
 import * as bitcoin from 'bitcoinjs-lib';
-import BIP32Factory from 'bip32';
+import { BIP32Factory } from 'bip32';
 import * as ecc from 'tiny-secp256k1'
 import * as bip39 from 'bip39';
 import { ECPair } from 'ecpair';
-const prompt = require('prompt-sync')();
+import axios from 'axios';
+import promptSync from 'prompt-sync';
+const prompt = promptSync();
 
 const TESTNET = bitcoin.networks.testnet;
 
@@ -29,32 +30,43 @@ const payment = bitcoin.payments.p2pkh({
     network: TESTNET,
 });
 
-console.log(`Testnet address: ${payment.address}`);
-console.log(`Use the above address to send tBTC from a faucet. Then use the address to lookup the resulting transaction (https://live.blockcypher.com/btc-testnet/address/${payment.address}).\n`);
+console.log(`Testnet address #1: ${payment.address}\n`);
+console.log(`Use the above address to send tBTC from a faucet. The transaction hex that will be built will send back half of the tBTC to the faucet it was received from.\n`);
 
-prompt('Press \'Enter\' if the current balance is greater than zero.')
+prompt('Press \'Enter\' once the transaction to receive tBTC from the faucet has a confirmation.\n');
 
-const txid = '9e73274fc8cab354aab97c40aa5d07fa9a3293a7984e363c24cf167f4a6c33b1';
-const index = 0;
-const txhex = '0200000000010111a49ce15c76b99b2f4f6e6f38e1759ff7e5be4f8dd5769a0229d6fcb8642bc00000000017160014193be7ef20ea4958e7c8841923dc7e29b42cad31feffffff02ca430100000000001976a9144a79355df98184e5fdea6cd27f701caaa45f178c88acfc71bd0f0000000017a914f46a6ccd24b4729a3ac66b507ac1c43b65f6f29a870247304402205736d37ca512b7d25cc940e05728de10a4c3b39bc05041ab555941c80a3ad98402206140df25c17f9a568b968d6231c2d8a2fc61a65d8569955b014778f3a5f4df8801210262407c86f6e88e4465f4edbe4d87b41abe01d1d76b0f335da736e89bf66ed41a69202000';
-const nonWitnessUtxo = Buffer.from(txhex, 'hex'); // is the txid in hex
+// construct the input data as the last utxo associated with the address
+const getTxInput = async () => {
+    const apiUrl = 'https://blockstream.info/testnet/api';
+    const addressTxs = (await axios.get(`${apiUrl}/address/${payment.address}/txs`)).data;
 
-const inputData = {
-    hash: txid,
-    index: index,
-    nonWitnessUtxo: nonWitnessUtxo,
+    for (const tx of addressTxs) {
+        for (let index = 0; index < tx.vout.length; index++) {
+            if (tx.vout[index].scriptpubkey_address == payment.address) {
+                const txhex = (await axios.get(`${apiUrl}/tx/${tx.txid}/hex`)).data;
+                const inputData = {
+                    hash: tx.txid,
+                    index: index,
+                    nonWitnessUtxo: Buffer.from(txhex, 'hex')
+                };
+                return inputData;
+            }
+        }
+    }
 };
+
+const inputData = await getTxInput();
+const outputAddress = prompt('Enter the address you would like to send tBTC to: '); // tb1ql7w62elx9ucw4pj5lgw4l028hmuw80sndtntxt
+const outputValue = prompt('Enter the value of tBTC you would like to send: '); // 0.0001
 
 const psbt = new bitcoin.Psbt({ network: TESTNET })
     .addInput(inputData)
     .addOutput({
-        address: 'mkHS9ne12qx9pS9VojpwU5xtRd4T7X7ZUt',
-        value: 1e4,
+        address: outputAddress,
+        value: outputValue * 1e8,
     });
 
 psbt.signInput(0, ECPair.fromPrivateKey(child.privateKey));
 psbt.validateSignaturesOfInput(0, validator);
 psbt.finalizeAllInputs();
-console.log(psbt.extractTransaction().toHex());
-
-// https://blockstream.info/testnet/api/address/mnJjVxhz8fXeeQji5w1YrLxdbwDzW5Gk5d/txs
+const rawTransaction = psbt.extractTransaction().toHex();

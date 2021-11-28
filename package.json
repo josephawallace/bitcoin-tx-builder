@@ -1,6 +1,8 @@
 {
+  "type": "module",
   "dependencies": {
     "@types/node": "^16.11.10",
+    "axios": "^0.24.0",
     "bip32": "^3.0.1",
     "bip39": "^3.0.4",
     "bitcoinjs-lib": "^6.0.0",

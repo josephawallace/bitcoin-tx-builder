@@ -31,42 +31,51 @@ const payment = bitcoin.payments.p2pkh({
 });
 
 console.log(`Testnet address #1: ${payment.address}\n`);
-console.log(`Use the above address to send tBTC from a faucet. The transaction hex that will be built will send back half of the tBTC to the faucet it was received from.\n`);
+console.log(`Fund the address above using a Bitcoin testnet faucet (i.e. https://bitcoinfaucet.uo1.net).`);
 
-prompt('Press \'Enter\' once the transaction to receive tBTC from the faucet has a confirmation.\n');
+prompt('Press \'Enter\' to continue...');
+const outputAddress = prompt('Enter the address you would like to send tBTC to: '); // tb1ql7w62elx9ucw4pj5lgw4l028hmuw80sndtntxt
+const outputValue = prompt('Enter the value of tBTC you would like to send: '); // 0.00075
 
-// construct the input data as the last utxo associated with the address
 const getTxInput = async () => {
     const apiUrl = 'https://blockstream.info/testnet/api';
     const addressTxs = (await axios.get(`${apiUrl}/address/${payment.address}/txs`)).data;
 
+    let utxoValueSum = 0;
+    let inputData = [];
     for (const tx of addressTxs) {
         for (let index = 0; index < tx.vout.length; index++) {
-            if (tx.vout[index].scriptpubkey_address == payment.address) {
+            if (tx.vout[index].scriptpubkey_address == payment.address && outputValue * 1e8 > utxoValueSum) {
                 const txhex = (await axios.get(`${apiUrl}/tx/${tx.txid}/hex`)).data;
-                const inputData = {
+                inputData.push({
                     hash: tx.txid,
                     index: index,
                     nonWitnessUtxo: Buffer.from(txhex, 'hex')
-                };
-                return inputData;
+                });
+                utxoValueSum += tx.vout[index].value;
             }
         }
     }
+    if (utxoValueSum >= outputValue * 1e8) { return inputData; }
+    else { throw new Error('Insufficient funds.'); }
 };
 
 const inputData = await getTxInput();
-const outputAddress = prompt('Enter the address you would like to send tBTC to: '); // tb1ql7w62elx9ucw4pj5lgw4l028hmuw80sndtntxt
-const outputValue = prompt('Enter the value of tBTC you would like to send: '); // 0.0001
+console.log(inputData);
 
-const psbt = new bitcoin.Psbt({ network: TESTNET })
-    .addInput(inputData)
-    .addOutput({
-        address: outputAddress,
-        value: outputValue * 1e8,
-    });
+const psbt = new bitcoin.Psbt({ network: TESTNET });
+inputData.forEach((input) => {
+    psbt.addInput(input);
+});
+psbt.addOutput({
+    address: outputAddress,
+    value: outputValue * 1e8,
+});
 
-psbt.signInput(0, ECPair.fromPrivateKey(child.privateKey));
-psbt.validateSignaturesOfInput(0, validator);
+for (let i = 0; i < inputData.length; i++) {
+    psbt.signInput(i, ECPair.fromPrivateKey(child.privateKey));
+    psbt.validateSignaturesOfInput(i, validator);
+}
 psbt.finalizeAllInputs();
 const rawTransaction = psbt.extractTransaction().toHex();
+console.log(rawTransaction);

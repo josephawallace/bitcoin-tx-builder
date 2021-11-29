@@ -7,7 +7,9 @@ import axios from 'axios';
 import promptSync from 'prompt-sync';
 const prompt = promptSync();
 
+const SAT_BTC_MULT = 1e8;
 const TESTNET = bitcoin.networks.testnet;
+const apiUrl = 'https://blockstream.info/testnet/api';
 
 const validator = (
     pubkey: Buffer,
@@ -30,52 +32,72 @@ const payment = bitcoin.payments.p2pkh({
     network: TESTNET,
 });
 
-console.log(`Testnet address #1: ${payment.address}\n`);
-console.log(`Fund the address above using a Bitcoin testnet faucet (i.e. https://bitcoinfaucet.uo1.net).`);
+console.log(`Testnet address #1: ${payment.address}`);
+prompt('Fund the address above using a Bitcoin testnet faucet (i.e. https://bitcoinfaucet.uo1.net). Press \'Enter\' to continue...');
 
-prompt('Press \'Enter\' to continue...');
-const outputAddress = prompt('Enter the address you would like to send tBTC to: '); // tb1ql7w62elx9ucw4pj5lgw4l028hmuw80sndtntxt
-const outputValue = prompt('Enter the value of tBTC you would like to send: '); // 0.00075
+// const outputAddress = prompt('Enter the address you would like to send tBTC to: ');
+// const outputValue = (prompt('Enter the value of tBTC you would like to send: ')) * 1e8;
+// const transactionFee = (prompt('Enter the value of the transaction fee: ')) * 1e8;
+const outputAddress = 'tb1ql7w62elx9ucw4pj5lgw4l028hmuw80sndtntxt';
+const outputValue = Number(0.0002 * 1e8);
+const transactionFee = Number(8000);
+const addressTxs = (await axios.get(`${apiUrl}/address/${payment.address}/txs`)).data;
 
-const getTxInput = async () => {
-    const apiUrl = 'https://blockstream.info/testnet/api';
-    const addressTxs = (await axios.get(`${apiUrl}/address/${payment.address}/txs`)).data;
-
-    let utxoValueSum = 0;
-    let inputData = [];
-    for (const tx of addressTxs) {
-        for (let index = 0; index < tx.vout.length; index++) {
-            if (tx.vout[index].scriptpubkey_address == payment.address && outputValue * 1e8 > utxoValueSum) {
-                const txhex = (await axios.get(`${apiUrl}/tx/${tx.txid}/hex`)).data;
-                inputData.push({
-                    hash: tx.txid,
-                    index: index,
-                    nonWitnessUtxo: Buffer.from(txhex, 'hex')
-                });
-                utxoValueSum += tx.vout[index].value;
-            }
+let inputs = []; 
+let spentTxids = []; 
+for (const tx of addressTxs) { 
+    for (let index = 0; index < tx.vout.length; index++) { 
+        if (tx.vout[index].scriptpubkey_address == payment.address) {
+            const txhex = (await axios.get(`${apiUrl}/tx/${tx.txid}/hex`)).data;
+            inputs.push({ 
+                hash: tx.txid,
+                index: index,
+                nonWitnessUtxo: Buffer.from(txhex, 'hex'),
+                value: tx.vout[index].value,
+            });
         }
     }
-    if (utxoValueSum >= outputValue * 1e8) { return inputData; }
-    else { throw new Error('Insufficient funds.'); }
-};
+    for (let index = 0; index < tx.vin.length; index++) { 
+        spentTxids.push(tx.vin[index].txid); 
+    }
+}
+spentTxids.forEach(spentTxid => {
+    const spent = inputs.some(input => input.hash == spentTxid);
+    if (spent) {
+        const spentInput = (input) => input.hash == spentTxid;
+        const spentInputIndex = inputs.findIndex(spentInput);
+        inputs.splice(spentInputIndex, 1);
+    }
+});
 
-const inputData = await getTxInput();
-console.log(inputData);
-
+let utxoValueSum = 0;
 const psbt = new bitcoin.Psbt({ network: TESTNET });
-inputData.forEach((input) => {
-    psbt.addInput(input);
+inputs.forEach((input) => {
+    utxoValueSum += input.value;
+    console.log({
+        hash: input.hash,
+        index: input.index,
+        nonWitnessUtxo: input.nonWitnessUtxo, 
+     });
+    psbt.addInput({
+       hash: input.hash,
+       index: input.index,
+       nonWitnessUtxo: input.nonWitnessUtxo, 
+    });
 });
 psbt.addOutput({
     address: outputAddress,
-    value: outputValue * 1e8,
+    value: outputValue,
 });
+psbt.addOutput({
+    address: payment.address,
+    value: utxoValueSum - outputValue - transactionFee,
+}); // change
 
-for (let i = 0; i < inputData.length; i++) {
-    psbt.signInput(i, ECPair.fromPrivateKey(child.privateKey));
-    psbt.validateSignaturesOfInput(i, validator);
-}
+psbt.signAllInputs(ECPair.fromPrivateKey(child.privateKey));
+psbt.validateSignaturesOfAllInputs(validator);
 psbt.finalizeAllInputs();
 const rawTransaction = psbt.extractTransaction().toHex();
 console.log(rawTransaction);
+const newTxId = (await axios.post('https://blockstream.info/testnet/api/tx', { body: rawTransaction })).data;
+console.log(`New transaction: https://blockstream.info/testnet/tx/${newTxId}`);

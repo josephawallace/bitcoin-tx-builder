@@ -40,7 +40,7 @@ prompt('Fund the address above using a Bitcoin testnet faucet (i.e. https://bitc
 // const transactionFee = (prompt('Enter the value of the transaction fee: ')) * 1e8;
 const outputAddress = 'tb1ql7w62elx9ucw4pj5lgw4l028hmuw80sndtntxt';
 const outputValue = Number(0.0002 * 1e8);
-const transactionFee = Number(8000);
+const transactionFee = Number(800);
 const addressTxs = (await axios.get(`${apiUrl}/address/${payment.address}/txs`)).data;
 
 let inputs = []; 
@@ -99,5 +99,5 @@ psbt.validateSignaturesOfAllInputs(validator);
 psbt.finalizeAllInputs();
 const rawTransaction = psbt.extractTransaction().toHex();
 console.log(rawTransaction);
-const newTxId = (await axios.post('https://blockstream.info/testnet/api/tx', { body: rawTransaction })).data;
+const newTxId = (await axios.post('https://blockstream.info/testnet/api/tx', rawTransaction)).data;
 console.log(`New transaction: https://blockstream.info/testnet/tx/${newTxId}`);

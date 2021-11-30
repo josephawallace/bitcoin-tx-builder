@@ -22,7 +22,7 @@ const bip32 = BIP32Factory(ecc);
 // const mnemonic  = bip39.generateMnemonic();
 const mnemonic = 'design differ hub arm among worth final cycle pioneer smooth artwork run';
 const seed = bip39.mnemonicToSeedSync(mnemonic); 
-const root = bip32.fromSeed(seed);
+const root = bip32.fromSeed(seed); // master key and master chain code
 
 const path = 'm/44\'/1\'/0\'/0/0';
 const child = root.derivePath(path);
@@ -36,10 +36,10 @@ console.log(`Testnet address #1: ${payment.address}`);
 prompt('Fund the address above using a Bitcoin testnet faucet (i.e. https://bitcoinfaucet.uo1.net). Press \'Enter\' to continue...');
 
 // const outputAddress = prompt('Enter the address you would like to send tBTC to: ');
-// const outputValue = (prompt('Enter the value of tBTC you would like to send: ')) * 1e8;
-// const transactionFee = (prompt('Enter the value of the transaction fee: ')) * 1e8;
+// const outputValue = (prompt('Enter the value of tBTC you would like to send: ')) * SAT_BTC_MULT;
+// const transactionFee = (prompt('Enter the value of the transaction fee: ')) * SAT_BTC_MULT;
 const outputAddress = 'tb1ql7w62elx9ucw4pj5lgw4l028hmuw80sndtntxt';
-const outputValue = Number(0.0002 * 1e8);
+const outputValue = Number(0.0002 * SAT_BTC_MULT);
 const transactionFee = Number(800);
 const addressTxs = (await axios.get(`${apiUrl}/address/${payment.address}/txs`)).data;
 
@@ -73,12 +73,13 @@ spentTxids.forEach(spentTxid => {
 let utxoValueSum = 0;
 const psbt = new bitcoin.Psbt({ network: TESTNET });
 inputs.forEach((input) => {
+    if (utxoValueSum >= outputValue + transactionFee) { return; }
     utxoValueSum += input.value;
     console.log({
         hash: input.hash,
         index: input.index,
         nonWitnessUtxo: input.nonWitnessUtxo, 
-     });
+    });
     psbt.addInput({
        hash: input.hash,
        index: input.index,

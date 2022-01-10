@@ -1,49 +1,33 @@
-# Create a HD Bitcoin Wallet
+# Cryptography
 
-The objective of this assignment is to become familiar with BIP32, BIP39, BIP43, and BIP44 standards. Create a new directory and install the [bitcoinjs-lib](https://github.com/bitcoinjs/bitcoinjs-lib) library by following the `README.md` at the linked repository to get started.
+Why are these blockchain-based digital assets called *crypto*currencies? Sure, they represent value and can be circulated like currency&mdash;but where does the *crypto* part come into play? Interestingly enough, the backbone of blockchain technologies lies in mathematical cryptography that has been studied for decades.
 
-## Creating public/private key pairs
+> *Task:* Watch this [video](https://youtu.be/OFOLm1g1sWI) as an introduction to the principles of cryptography.
 
-### Mnemonic seed phrase
+## Symmetric Cipher
 
-Before BIP32, bitcoin wallets held a collection of key pairs that had no relationship; this kind of wallet is known as a JBOK ("Just a Bunch of Keys") wallet. Since most wallet implementations generate a new key pair after every transaction, JBOK wallets are considered highly secure because a compromised private key only permits an adversary to spend funds associated with that one address. However, the disjointed nature of JBOK wallets necessitates frequent backups of keys and makes wallet imports/exports cumbersome. 
+*Symmetric* ciphers are encryption schemes in which the parties involved share a secret that is used to encode and decode messages. Consider the example of a [substitution cipher](https://en.wikipedia.org/wiki/Substitution_cipher), in which characters from a given alphabet are mapped to a new alphabet (often the same symbols in a different order). 
 
-The BIP32 standard introduced the concept of a HD (hierarchical deterministic) wallet that can derive child key pairs from a master key pair. This way, only one key is needed to import/export, and only that key needs a backup.
+<img src="../extras/images/substitution%20cipher.png" width="300">
 
-The BIP39 standard introduced an even more convenient and secure method of wallet import/export and backups. This standard specifies how to use a *mnemonic seed phrase* to derive a master key pair for an HD wallet. This provides enhanced convenience because now a set of readable words can be used represent a master key, and it provides enhanced security because the seed phrase can be more faithfully transcribed for paper backups.
+Now imagine Alice wants to send a secret message to Bob. She would substitute the plaintext characters with their cipher text counterparts according to the mapping she defined. Let's say an eavesdropper named Eve intercepted the message while in transit&mdash;the message would appear as gibberish to her! Once Bob receives the message, he can decrypt it by reversing the substitutions that Alice made. The important thing to note is that both Alice and Bob would need to know how the letters are mapped in order to encrypt and decrypt messages. The fact that the same secret must be known between Alice and Bob is what characterizes a symmetric cipher.  
 
-> *Task*: Create a mnemonic seed phrase. From this seed phrase, generate a master key.
+Symmetric ciphers are not used in blockchain, but the principle of a secret being used to securely transmit messages certainly is. The next section introduces asymmetric ciphers, which have the same goal of encryption and decryption, but a different approach.
 
-### Derivation path
+## Public-key Cryptography
 
-BIP43 and BIP44 introduced a paradigm for denoting the path of a bitcoin address within a wallet based on the purpose, coin type, account number, whether it is a change address, and address index.
+In contrast, *asymmetric* ciphers are characterized by the fact that only one end of communication needs to hold a secret to decrypt messages. Asymmetric cryptography is more commonly referred to as [public-key cryptography](https://en.wikipedia.org/wiki/Public-key_cryptography), due to its use of a public/private key pair.
 
-`m / purpose' / coin_type' / account' / change / address_index`
+In such cryptosystems, anyone who intends to receive messages must create a pair of keys&mdash;one of which is public and can be published openly, and another which remains private. The public key can be used by anyone to encrypt messages; however, only the holder of the corresponding private key can decrypt those messages. The discrepancy of information between the two parties is what makes the cryptosystem "asymmetric". The process looks like this:
 
-> *Task*: Using the master key and the derivation path, generate a child bitcoin address.
+<img src="../extras/images/public%20key%20crypo.png" width="300">
 
-### Fund the address
+In the context of bitcoin, instead of Bob sending "Hello Alice!" as his message, he may send an amount of BTC. He encrypts this message with Alice's public key and sends it. Because Alice kept her private key a secret, only she will be able to decrypt the message and spend the bitcoin. 
 
-> *Task*: Using a bitcoin testnet faucet (i.e. https://bitcoinfaucet.uo1.net), send funds to your newly generated child address. 
+### One-way Functions
 
-## Create a raw transaction 
+As was explained in the previous sections, public-key cryptography uses a pair of cryptographic keys to encrypt and decrypt messages. For all intents and purposes, a private key is just a "random" number between 0 and $2^{256}$. 
 
-### Inputs and outputs
+The private key is used to generate the public key through the use of an [one-way functions](https://en.wikipedia.org/wiki/One-way_function). The defining principle of a one way function is that given inputs, the output is easily calculable; but when an output is known, the corresponding input is virtually impossible to deduce. As an illustration, imagine you were given two different colors of paint. You can mix the paint easily, but un-mixing the paint is a whole different story. That's the idea of a one-way function.
 
-Bitcoin transactions are comprised of input and output segments. The inputs of a transaction are used to verify that the address intending to send bitcoin is indeed entitled to those funds. The outputs of the transaction are used specify who is to be the newly entitled owner of the funds. For a detailed description of these segments, see this [article](https://klmoney.wordpress.com/bitcoin-dissecting-transactions-part-1/) on dissecting transactions, by *@klmoney8*.
-
-> *Task*: Gather, then serialize the necessary input data to form a raw unsigned transaction. Be sure to read the section on the UTXO model to learn how to create transactions using an arbitrary amount of bitcoin associated with your address.
-
-## Broadcast the raw transaction
-
-### Signing a transaction
-
-The two fields of particular interest within a bitcoin transaction are the ScriptSig and ScriptPubKey. These two fields are responsible for the phenomenon of digital ownership that is at the heart of the bitcoin protocol. The ScriptPubKey is responsible for specifying the condition in which a UTXO can be spent, and the ScriptSig is the input that intends to satisfy the given condition. The most typical bitcoin transactions use a Pay-to-Public-Key-Hash (P2PKH) ScriptPubKey, which necessitates a user to prove access to the private key that corresponds to the public key hash the UTXO was sent to. This process of proving ownership of the funds being sent is considered *signing* the transaction.
-
-> *Task*: Sign the transaction and serialize in preparation to broadcasted over the network.
-
-### Send the transaction over the network
-
-Once you have a serialized signed transaction, you are ready to send it over the network to be verified and included in the blockchain! This is done by sending an RPC call to a node saying that you would like your transaction broadcasted. Instead of running a node ourselves, we can use a public API to interact with the blockchain, such as the [Blockstream API](https://github.com/Blockstream/esplora/blob/master/API.md).
-
-> *Task*: Send the raw transaction hex to the blockchain via a public API. You should be able to confirm that the transaction has been sent by searching for its hash on a block explorer.
+There is a one-way function involving [elliptic curve cryptography](https://en.wikipedia.org/wiki/Elliptic-curve_cryptography) that takes the private key as input and produces the public key as output. You can freely use the public key without compromising the private key, thanks to *one-way* functions.

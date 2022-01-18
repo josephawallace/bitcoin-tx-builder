@@ -13,3 +13,9 @@
 
 **Q:** What are the functions of a crypto wallet?
 **A:** A crypto wallet needs to be able to generate valid keys/addresses, safely store the keys, and construct, sign, and broadcast transactions.
+
+## Keys and Addresses
+
+**Q:** What does it mean for a child key to be "hardened"? Why would we use a hardened child key over a non-hardened?
+
+**A:** Hardened Keys are a type of BIP32 derivation, denoted by an apostrophe in the derivation path (ex: m / 44' / 0' / 1' / 1 / 0). When a Child Key is "hardened", it removes the link to a parent public key. Hardened Keys are more safe and secure, as an attacker cannot recover the parent private key if the child key has been compromised. 

@@ -6,7 +6,7 @@ import { ECPair } from 'ecpair';
 import axios from 'axios';
 import promptSync from 'prompt-sync';
 import path from 'path';
-import fs from 'fs';
+import ora from 'ora';
 const prompt = promptSync();
 const SAT_BTC_MULT = 1e8;
 const TESTNET = bitcoin.networks.testnet;
@@ -18,151 +18,120 @@ const bip32 = BIP32Factory(ecc);
 const mnemonic = 'height dad moral vacant clump service category unhappy dumb remain soda dash';
 const seed = bip39.mnemonicToSeedSync(mnemonic);
 const root = bip32.fromSeed(seed); // master key and master chain code
-let children = [], index = 0, unusedCount = 0;
-while (unusedCount < 20) {
-    // create HD wallet child
-    const derivationPath = `m/44\'/1\'/0\'/0/${index}`;
-    const child = root.derivePath(derivationPath);
-    const payment = bitcoin.payments.p2pkh({
-        pubkey: child.publicKey,
-        network: TESTNET,
-    });
-    // check if address is used
-    let used = false;
-    const addressTxs = (await axios.get(`${apiUrl}/address/${payment.address}/txs`)).data;
-    if (addressTxs.length > 0) {
-        used = true;
-        unusedCount = 0;
-    }
-    else {
-        unusedCount++;
-    }
-    // push child and move to the next
-    children.push({ address: payment.address, derivationPath: derivationPath, privateKey: child.privateKey, used: used });
-    index++;
-}
-const getAddressTxRecords = async (child) => {
-    // gather all transaction outputs and txids that have been used as input (i.e. spent)
-    let txRecords = [];
-    let spentTxids = [];
-    const addressTxs = (await axios.get(`${apiUrl}/address/${child.address}/txs`)).data;
-    for (const tx of addressTxs) {
-        for (let index = 0; index < tx.vout.length; index++) {
-            if (tx.vout[index].scriptpubkey_address == child.address) {
-                const txhex = (await axios.get(`${apiUrl}/tx/${tx.txid}/hex`)).data;
-                txRecords.push({
-                    address: child.address,
-                    derivationPath: child.derivationPath,
-                    hash: tx.txid,
-                    index: index,
-                    nonWitnessUtxo: txhex,
-                    value: tx.vout[index].value,
-                    spent: false,
-                });
+const getWalletData = async () => {
+    const spinner = ora('Getting wallet data...').start();
+    let unspentTransactions = [];
+    let unusedAddresses = [];
+    let balance = 0;
+    // loop through addresses, stop at 20 consecutive unused addresses
+    let index = 0, changeAddress = false, unusedCount = 0;
+    while (unusedCount < 20) {
+        const derivationPath = `m/44\'/1\'/0\'/${changeAddress ? 1 : 0}/${index}`;
+        const child = root.derivePath(derivationPath);
+        const payment = bitcoin.payments.p2pkh({
+            pubkey: child.publicKey,
+            network: TESTNET,
+        });
+        // get all transactions associated with address
+        const transactions = (await axios.get(`${apiUrl}/address/${payment.address}/txs`)).data;
+        // track addresses with no associated transactions as unused (excluding change address)
+        if (transactions.length > 0 && !changeAddress) {
+            unusedCount = 0;
+        }
+        else if (transactions.length == 0 && !changeAddress) {
+            unusedAddresses.push(payment.address);
+            unusedCount++;
+        }
+        // get all unspent transactions associated with address and data needed to construct send transaction
+        let spentTxids = [];
+        for (const tx of transactions) {
+            for (let index = 0; index < tx.vout.length; index++) {
+                if (tx.vout[index].scriptpubkey_address == payment.address) {
+                    const txHex = (await axios.get(`${apiUrl}/tx/${tx.txid}/hex`)).data;
+                    unspentTransactions.push({
+                        child: child,
+                        hash: tx.txid,
+                        index: index,
+                        nonWitnessUtxo: Buffer.from(txHex, 'hex'),
+                        value: tx.vout[index].value,
+                    });
+                }
+            }
+            for (let index = 0; index < tx.vin.length; index++) {
+                spentTxids.push(tx.vin[index].txid);
             }
         }
-        for (let index = 0; index < tx.vin.length; index++) {
-            spentTxids.push(tx.vin[index].txid);
+        spentTxids.forEach(spentTxid => {
+            const spent = unspentTransactions.some(tx => tx.hash == spentTxid);
+            if (spent) {
+                const spentOutput = (tx) => tx.hash == spentTxid;
+                const spentOutputIndex = unspentTransactions.findIndex(spentOutput);
+                unspentTransactions.splice(spentOutputIndex, 1);
+            }
+        });
+        if (changeAddress) {
+            index++;
         }
+        changeAddress = !changeAddress;
     }
-    // indicate spent transaction outputs
-    spentTxids.forEach(spentTxid => {
-        const spent = txRecords.some(txRecord => txRecord.hash == spentTxid);
-        if (spent) {
-            const spentOutput = (txRecord) => txRecord.hash == spentTxid;
-            const spentOutputIndex = txRecords.findIndex(spentOutput);
-            txRecords[spentOutputIndex].spent = true;
-        }
-    });
-    return txRecords;
-};
-const getAllTxos = async () => {
-    // get all transaction outputs across addresses
-    let allTxos = [];
-    for (const child of children) {
-        if (!child.used) {
-            continue;
-        }
-        const txos = await getAddressTxRecords(child);
-        allTxos = allTxos.concat(txos);
+    // collect the balance for the entire hierarchy
+    for (const utxo of unspentTransactions) {
+        balance += utxo.value;
     }
-    return allTxos;
+    spinner.stop();
+    return { utxos: unspentTransactions, unusedAddresses: unusedAddresses, balance: balance };
 };
-const createTxoJsonRecord = async (allTxos) => {
-    if (!fs.existsSync(TXO_FILE_PATH)) {
-        const allTxos = await getAllTxos();
-        fs.writeFileSync(TXO_FILE_PATH, JSON.stringify(allTxos), { flag: 'w+' });
-    }
-};
-const txos = await getAllTxos();
-const getBalance = () => {
-    let balance = 0;
-    for (const tx of txos) {
-        if (!tx.spent) {
-            balance += tx.value;
-        }
-    }
-    return balance;
-};
-const getReceiveAddress = () => {
-    for (let i = 0; i < children.length; i++) {
-        if (!children[i].used) {
-            return children[i].address;
-        }
-    }
-};
-const createTransaction = (address, outputValue, transactionFee) => {
-    let utxoValueSum = 0, signers = [];
+const createTransaction = async () => {
+    const walletData = await getWalletData();
     const psbt = new bitcoin.Psbt({ network: TESTNET });
-    txos.forEach((txo) => {
-        if (txo.spent || utxoValueSum >= outputValue + transactionFee) {
+    // UTXO info for debugging
+    console.log('');
+    let utxoIndex = 0;
+    walletData.utxos.forEach(utxo => {
+        console.log(`UTXO ${utxoIndex}: ${utxo.value / SAT_BTC_MULT} BTC`);
+        utxoIndex++;
+    });
+    console.log('');
+    // interface information
+    console.log(`Receive address: ${walletData.unusedAddresses[0]}`);
+    console.log(`Wallet balance: ${walletData.balance / SAT_BTC_MULT} BTC\n`);
+    // gather all necessary output info
+    const outputAddress = prompt('Enter the address you would like to send tBTC to: ');
+    const outputValue = Math.floor(Number((prompt('Enter the value of tBTC you would like to send: ')) * SAT_BTC_MULT));
+    const transactionFee = 1000; // is incremented based on number of inputs (P2PKH input is 148 bytes, P2PKH output is 34 bytes)
+    // include all necessary inputs and outputs for transaction
+    let utxoValueSum = 0, signers = [];
+    walletData.utxos.forEach(utxo => {
+        if (utxoValueSum >= outputValue + transactionFee) {
             return;
         }
-        utxoValueSum += txo.value;
+        utxoValueSum += utxo.value;
         psbt.addInput({
-            hash: txo.hash,
-            index: txo.index,
-            nonWitnessUtxo: Buffer.from(txo.nonWitnessUtxo, 'hex'),
+            hash: utxo.hash,
+            index: utxo.index,
+            nonWitnessUtxo: utxo.nonWitnessUtxo,
         });
-        const signer = children.find(child => {
-            return child.derivationPath == txo.derivationPath;
-        });
-        signers.push(signer);
+        signers.push(utxo.child); // track which addresses' utxos are being used
     });
     psbt.addOutput({
-        address: address,
+        address: outputAddress,
         value: outputValue,
     });
-    const receiveAddress = getReceiveAddress();
     psbt.addOutput({
-        address: receiveAddress,
+        address: walletData.unusedAddresses[0],
         value: utxoValueSum - outputValue - transactionFee,
     }); // change
+    // sign transaction
     signers.forEach(signer => {
+        console.log('in signing process');
+        console.log(signer.privateKey);
         psbt.signAllInputs(ECPair.fromPrivateKey(signer.privateKey));
     });
     psbt.validateSignaturesOfAllInputs(validator);
     psbt.finalizeAllInputs();
     const rawTransaction = psbt.extractTransaction().toHex();
     console.log('\n' + rawTransaction + '\n');
-    return rawTransaction;
+    const newTxId = (await axios.post('https://blockstream.info/testnet/api/tx', rawTransaction)).data;
+    console.log(`New transaction: https://blockstream.info/testnet/tx/${newTxId}`);
 };
-const start = () => {
-    const receiveAddress = getReceiveAddress();
-    console.log(`Receive address: ${receiveAddress}`);
-    const balance = getBalance();
-    console.log(`Balance: ${balance / SAT_BTC_MULT} BTC\n`);
-    let i = 0;
-    txos.forEach(txo => {
-        if (!txo.spent) {
-            console.log(`UTXO ${i}: ${txo.value / SAT_BTC_MULT} BTC`);
-            i++;
-        }
-    });
-    console.log('');
-    const outputAddress = prompt('Enter the address you would like to send tBTC to: ');
-    const outputValue = Math.floor(Number((prompt('Enter the value of tBTC you would like to send: ')) * SAT_BTC_MULT));
-    const transactionFee = (prompt('Enter the value of the transaction fee: ')) * SAT_BTC_MULT;
-    createTransaction(outputAddress, outputValue, transactionFee);
-};
-start();
+await createTransaction();

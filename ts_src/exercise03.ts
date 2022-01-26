@@ -115,7 +115,7 @@ const createTransaction = async () => {
 
     // UTXO info for debugging
     console.log('');
-    let utxoIndex = 0;
+    let utxoIndex = 1;
     walletData.utxos.forEach(utxo => {
         console.log(`UTXO ${utxoIndex}: ${utxo.value / SAT_BTC_MULT} BTC`);
         utxoIndex++;
@@ -154,16 +154,21 @@ const createTransaction = async () => {
     }); // change
 
     // sign transaction
+    signers = [...new Set(signers)];
     signers.forEach(signer => {
-        console.log('in signing process')
-        console.log(signer.privateKey)
-        psbt.signAllInputs(ECPair.fromPrivateKey(signer.privateKey));
+        try {
+            psbt.signAllInputs(ECPair.fromPrivateKey(signer.privateKey));
+        } catch (err) {
+            console.log(err);
+        }
     });
     psbt.validateSignaturesOfAllInputs(validator);
     psbt.finalizeAllInputs();
 
     const rawTransaction = psbt.extractTransaction().toHex();
     console.log('\n' + rawTransaction + '\n');
+    const broadcast = prompt('Would you like to broadcast this transactions? (y/n) ');
+    if (broadcast !== 'y') { return; }
     const newTxId = (await axios.post('https://blockstream.info/testnet/api/tx', rawTransaction)).data;
     console.log(`New transaction: https://blockstream.info/testnet/tx/${newTxId}`);
 };

@@ -86,7 +86,7 @@ const createTransaction = async () => {
     const psbt = new bitcoin.Psbt({ network: TESTNET });
     // UTXO info for debugging
     console.log('');
-    let utxoIndex = 0;
+    let utxoIndex = 1;
     walletData.utxos.forEach(utxo => {
         console.log(`UTXO ${utxoIndex}: ${utxo.value / SAT_BTC_MULT} BTC`);
         utxoIndex++;
@@ -101,6 +101,15 @@ const createTransaction = async () => {
     const transactionFee = 1000; // is incremented based on number of inputs (P2PKH input is 148 bytes, P2PKH output is 34 bytes)
     // include all necessary inputs and outputs for transaction
     let utxoValueSum = 0, signers = [];
+    // while (utxoValueSum < outputValue + transactionFee) {
+    //     const reducer = walletData.utxos.reduce((a, b) => {
+    //         return (Math.abs(a.value - outputValue) < Math.abs(b.value - outputValue)) ? a : b;
+    //     });
+    // }
+    const reducer = walletData.utxos.reduce((a, b) => {
+        return (Math.abs(a.value - outputValue) < Math.abs(b.value - outputValue)) ? a : b;
+    });
+    console.log(reducer);
     walletData.utxos.forEach(utxo => {
         if (utxoValueSum >= outputValue + transactionFee) {
             return;
@@ -122,15 +131,23 @@ const createTransaction = async () => {
         value: utxoValueSum - outputValue - transactionFee,
     }); // change
     // sign transaction
+    signers = [...new Set(signers)];
     signers.forEach(signer => {
-        console.log('in signing process');
-        console.log(signer.privateKey);
-        psbt.signAllInputs(ECPair.fromPrivateKey(signer.privateKey));
+        try {
+            psbt.signAllInputs(ECPair.fromPrivateKey(signer.privateKey));
+        }
+        catch (err) {
+            console.log(err);
+        }
     });
     psbt.validateSignaturesOfAllInputs(validator);
     psbt.finalizeAllInputs();
     const rawTransaction = psbt.extractTransaction().toHex();
     console.log('\n' + rawTransaction + '\n');
+    const broadcast = prompt('Would you like to broadcast this transactions? (y/n) ');
+    if (broadcast !== 'y') {
+        return;
+    }
     const newTxId = (await axios.post('https://blockstream.info/testnet/api/tx', rawTransaction)).data;
     console.log(`New transaction: https://blockstream.info/testnet/tx/${newTxId}`);
 };

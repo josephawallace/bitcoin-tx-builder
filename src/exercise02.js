@@ -22,7 +22,7 @@ const payment = bitcoin.payments.p2pkh({
     network: TESTNET,
 });
 console.log(payment);
-console.log(`Testnet address #1: ${payment.address}`);
+~console.log(`Testnet address #1: ${payment.address}`);
 prompt('Fund the address above using a Bitcoin testnet faucet (i.e. https://bitcoinfaucet.uo1.net). Press \'Enter\' to continue...');
 const outputAddress = prompt('Enter the address you would like to send tBTC to: ');
 const outputValue = Math.floor(Number((prompt('Enter the value of tBTC you would like to send: ')) * SAT_BTC_MULT));

@@ -43,32 +43,43 @@ const getWalletData = async () => {
             unusedCount++;
         }
         // get all unspent transactions associated with address and data needed to construct send transaction
-        let spentTxids = [];
-        for (const tx of transactions) {
-            for (let index = 0; index < tx.vout.length; index++) {
-                if (tx.vout[index].scriptpubkey_address == payment.address) {
-                    const txHex = (await axios.get(`${apiUrl}/tx/${tx.txid}/hex`)).data;
-                    unspentTransactions.push({
-                        child: child,
-                        hash: tx.txid,
-                        index: index,
-                        nonWitnessUtxo: Buffer.from(txHex, 'hex'),
-                        value: tx.vout[index].value,
-                    });
-                }
-            }
-            for (let index = 0; index < tx.vin.length; index++) {
-                spentTxids.push(tx.vin[index].txid);
-            }
-        }
-        spentTxids.forEach(spentTxid => {
-            const spent = unspentTransactions.some(tx => tx.hash == spentTxid);
-            if (spent) {
-                const spentOutput = (tx) => tx.hash == spentTxid;
-                const spentOutputIndex = unspentTransactions.findIndex(spentOutput);
-                unspentTransactions.splice(spentOutputIndex, 1);
-            }
+        const utxos = (await axios.get(`${apiUrl}/address/${payment.address}/utxo`)).data;
+        await utxos.forEach(async (utxo) => {
+            const txHex = (await axios.get(`${apiUrl}/tx/${utxo.txid}/hex`)).data;
+            unspentTransactions.push({
+                child: child,
+                hash: utxo.txid,
+                index: utxo.vout,
+                nonWitnessUtxo: Buffer.from(txHex, 'hex'),
+                value: utxo.value,
+            });
         });
+        // let spentTxids = [];
+        // for (const tx of transactions) {
+        //     for (let index = 0; index < tx.vout.length; index++) { 
+        //         if (tx.vout[index].scriptpubkey_address == payment.address) {
+        //             const txHex = (await axios.get(`${apiUrl}/tx/${tx.txid}/hex`)).data;
+        //             unspentTransactions.push({ // instead of address, derivationPath, there should be a child object assoc with each tx
+        //                 child: child,
+        //                 hash: tx.txid,
+        //                 index: index,
+        //                 nonWitnessUtxo: Buffer.from(txHex, 'hex'),
+        //                 value: tx.vout[index].value,
+        //             });
+        //         }
+        //     }
+        //     for (let index = 0; index < tx.vin.length; index++) { 
+        //         spentTxids.push(tx.vin[index].txid);
+        //     }
+        // }
+        // spentTxids.forEach(spentTxid => { // pluck spent transactions from unspentTransactions array
+        //     const spent = unspentTransactions.some(tx => tx.hash == spentTxid);
+        //     if (spent) {
+        //         const spentOutput = (tx) => tx.hash == spentTxid;
+        //         const spentOutputIndex = unspentTransactions.findIndex(spentOutput);
+        //         unspentTransactions.splice(spentOutputIndex, 1);
+        //     }
+        // });
         if (changeAddress) {
             index++;
         }
@@ -88,7 +99,11 @@ const createTransaction = async () => {
     console.log('');
     let utxoIndex = 1;
     walletData.utxos.forEach(utxo => {
-        console.log(`UTXO ${utxoIndex}: ${utxo.value / SAT_BTC_MULT} BTC`);
+        const payment = bitcoin.payments.p2pkh({
+            pubkey: utxo.child.publicKey,
+            network: TESTNET,
+        });
+        console.log(`(${payment.address}) UTXO ${utxoIndex}: ${utxo.value / SAT_BTC_MULT} BTC`);
         utxoIndex++;
     });
     console.log('');
@@ -101,15 +116,6 @@ const createTransaction = async () => {
     const transactionFee = 1000; // is incremented based on number of inputs (P2PKH input is 148 bytes, P2PKH output is 34 bytes)
     // include all necessary inputs and outputs for transaction
     let utxoValueSum = 0, signers = [];
-    // while (utxoValueSum < outputValue + transactionFee) {
-    //     const reducer = walletData.utxos.reduce((a, b) => {
-    //         return (Math.abs(a.value - outputValue) < Math.abs(b.value - outputValue)) ? a : b;
-    //     });
-    // }
-    const reducer = walletData.utxos.reduce((a, b) => {
-        return (Math.abs(a.value - outputValue) < Math.abs(b.value - outputValue)) ? a : b;
-    });
-    console.log(reducer);
     walletData.utxos.forEach(utxo => {
         if (utxoValueSum >= outputValue + transactionFee) {
             return;

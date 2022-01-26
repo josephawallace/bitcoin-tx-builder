@@ -29,14 +29,6 @@ const mnemonic: string = 'height dad moral vacant clump service category unhappy
 const seed = bip39.mnemonicToSeedSync(mnemonic);
 const root = bip32.fromSeed(seed); // master key and master chain code
 
-// generate child nodes
-interface Child {
-    address: string,
-    derivationPath: string,
-    privateKey: Buffer,
-    used: boolean | undefined
-}
-
 const getWalletData = async () => {
     const spinner = ora('Getting wallet data...').start();
     
@@ -66,33 +58,18 @@ const getWalletData = async () => {
         }
 
         // get all unspent transactions associated with address and data needed to construct send transaction
-        let spentTxids = [];
-        for (const tx of transactions) {
-            for (let index = 0; index < tx.vout.length; index++) { 
-                if (tx.vout[index].scriptpubkey_address == payment.address) {
-                    const txHex = (await axios.get(`${apiUrl}/tx/${tx.txid}/hex`)).data;
-                    unspentTransactions.push({ // instead of address, derivationPath, there should be a child object assoc with each tx
-                        child: child,
-                        hash: tx.txid,
-                        index: index,
-                        nonWitnessUtxo: Buffer.from(txHex, 'hex'),
-                        value: tx.vout[index].value,
-                    });
-                }
-            }
-            for (let index = 0; index < tx.vin.length; index++) { 
-                spentTxids.push(tx.vin[index].txid);
-            }
-        }
-        spentTxids.forEach(spentTxid => { // pluck spent transactions from unspentTransactions array
-            const spent = unspentTransactions.some(tx => tx.hash == spentTxid);
-            if (spent) {
-                const spentOutput = (tx) => tx.hash == spentTxid;
-                const spentOutputIndex = unspentTransactions.findIndex(spentOutput);
-                unspentTransactions.splice(spentOutputIndex, 1);
-            }
+        const utxos = (await axios.get(`${apiUrl}/address/${payment.address}/utxo`)).data;
+        await utxos.forEach(async (utxo: any) => {
+            const txHex = (await axios.get(`${apiUrl}/tx/${utxo.txid}/hex`)).data;
+            unspentTransactions.push({
+                child: child,
+                hash: utxo.txid,
+                index: utxo.vout,
+                nonWitnessUtxo: Buffer.from(txHex, 'hex'),
+                value: utxo.value,
+            })
         });
-        
+
         if (changeAddress) {
             index++;
         }
@@ -117,7 +94,11 @@ const createTransaction = async () => {
     console.log('');
     let utxoIndex = 1;
     walletData.utxos.forEach(utxo => {
-        console.log(`UTXO ${utxoIndex}: ${utxo.value / SAT_BTC_MULT} BTC`);
+        const payment = bitcoin.payments.p2pkh({
+            pubkey: utxo.child.publicKey,
+            network: TESTNET,
+        });
+        console.log(`(${payment.address}) UTXO ${utxoIndex}: ${utxo.value / SAT_BTC_MULT} BTC`);
         utxoIndex++;
     });
     console.log('');

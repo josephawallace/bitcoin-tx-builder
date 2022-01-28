@@ -42,6 +42,14 @@ const getWalletData = async () => {
             unusedAddresses.push(payment.address);
             unusedCount++;
         }
+        // skip api calls if address does not have associated transactions (including change address)
+        if (transactions.length == 0) {
+            if (changeAddress) {
+                index++;
+            }
+            changeAddress = !changeAddress;
+            continue;
+        }
         // get all unspent transactions associated with address and data needed to construct send transaction
         const utxos = (await axios.get(`${apiUrl}/address/${payment.address}/utxo`)).data;
         await utxos.forEach(async (utxo) => {
@@ -54,32 +62,6 @@ const getWalletData = async () => {
                 value: utxo.value,
             });
         });
-        // let spentTxids = [];
-        // for (const tx of transactions) {
-        //     for (let index = 0; index < tx.vout.length; index++) { 
-        //         if (tx.vout[index].scriptpubkey_address == payment.address) {
-        //             const txHex = (await axios.get(`${apiUrl}/tx/${tx.txid}/hex`)).data;
-        //             unspentTransactions.push({ // instead of address, derivationPath, there should be a child object assoc with each tx
-        //                 child: child,
-        //                 hash: tx.txid,
-        //                 index: index,
-        //                 nonWitnessUtxo: Buffer.from(txHex, 'hex'),
-        //                 value: tx.vout[index].value,
-        //             });
-        //         }
-        //     }
-        //     for (let index = 0; index < tx.vin.length; index++) { 
-        //         spentTxids.push(tx.vin[index].txid);
-        //     }
-        // }
-        // spentTxids.forEach(spentTxid => { // pluck spent transactions from unspentTransactions array
-        //     const spent = unspentTransactions.some(tx => tx.hash == spentTxid);
-        //     if (spent) {
-        //         const spentOutput = (tx) => tx.hash == spentTxid;
-        //         const spentOutputIndex = unspentTransactions.findIndex(spentOutput);
-        //         unspentTransactions.splice(spentOutputIndex, 1);
-        //     }
-        // });
         if (changeAddress) {
             index++;
         }

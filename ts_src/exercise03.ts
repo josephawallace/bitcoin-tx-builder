@@ -57,6 +57,15 @@ const getWalletData = async () => {
             unusedCount++;
         }
 
+        // skip api calls if address does not have associated transactions (including change address)
+        if (transactions.length == 0) {
+            if (changeAddress) {
+                index++;
+            }
+            changeAddress = !changeAddress;
+            continue;
+        }
+
         // get all unspent transactions associated with address and data needed to construct send transaction
         const utxos = (await axios.get(`${apiUrl}/address/${payment.address}/utxo`)).data;
         await utxos.forEach(async (utxo: any) => {
